@@ -1,5 +1,7 @@
 # Lib2Dex
 
+![Visitor Count](https://visitor-badge.laobi.icu/badge?page_id=faymaz.lib2dex)
+
 [![npm version](https://badge.fury.io/js/lib2dex.svg)](https://www.npmjs.com/package/lib2dex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
