@@ -284,7 +284,11 @@ class LibreViewClient {
        
         if (data.connection && data.connection.glucoseMeasurement) {
             const gm = data.connection.glucoseMeasurement;
-            readings.push(this._formatReading(gm));
+            const currentReading = this._formatReading(gm);
+            console.log(`[LibreView] Current: ${currentReading.value} mg/dL @ ${currentReading.timestamp.toISOString()}`);
+            readings.push(currentReading);
+        } else {
+            console.log('[LibreView] Warning: No current glucoseMeasurement!');
         }
 
        
@@ -318,10 +322,16 @@ class LibreViewClient {
     _formatReading(data) {
        
         let timestamp;
-        if (data.FactoryTimestamp) {
-            timestamp = new Date(data.FactoryTimestamp);
-        } else if (data.Timestamp) {
-            timestamp = new Date(data.Timestamp);
+        let rawTs = data.Timestamp || data.FactoryTimestamp;
+
+        if (rawTs) {
+           
+            timestamp = new Date(rawTs);
+            if (isNaN(timestamp.getTime())) {
+               
+                console.log(`[LibreView] Warning: Invalid timestamp "${rawTs}"`);
+                timestamp = new Date();
+            }
         } else {
             timestamp = new Date();
         }
