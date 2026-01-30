@@ -148,5 +148,41 @@ async function main() {
     }
 }
 
-// Run
-main();
+// Startup delay file to prevent hammering API on PM2 restarts
+const fs = require('fs');
+const CRASH_FILE = '/tmp/lib2dex-last-crash';
+
+async function checkStartupDelay() {
+    try {
+        if (fs.existsSync(CRASH_FILE)) {
+            const lastCrash = parseInt(fs.readFileSync(CRASH_FILE, 'utf8'));
+            const timeSinceLastCrash = Date.now() - lastCrash;
+            const minDelay = 60000; // 1 minute minimum between restarts
+
+            if (timeSinceLastCrash < minDelay) {
+                const waitTime = minDelay - timeSinceLastCrash;
+                console.log(`[Startup] Waiting ${Math.round(waitTime/1000)}s to avoid rate limiting...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+        }
+    } catch (e) {
+        // Ignore errors reading crash file
+    }
+}
+
+function recordCrash() {
+    try {
+        fs.writeFileSync(CRASH_FILE, Date.now().toString());
+    } catch (e) {
+        // Ignore errors
+    }
+}
+
+// Run with crash protection
+checkStartupDelay().then(() => {
+    main().catch(err => {
+        recordCrash();
+        console.error(`FATAL ERROR: ${err.message}`);
+        process.exit(1);
+    });
+});
