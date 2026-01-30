@@ -238,7 +238,9 @@ class DexcomClient {
         };
 
        
-        console.log(`[Dexcom] Upload: SN=${this.serialNumber}, ${egvs.length} records, latest=${egvs[0]?.Value} mg/dL`);
+        const latestTs = egvs[0]?.DT?.match(/Date\((\d+)\)/)?.[1];
+        const latestTime = latestTs ? new Date(parseInt(latestTs)).toISOString() : 'unknown';
+        console.log(`[Dexcom] Upload: ${egvs[0]?.Value} mg/dL @ ${latestTime}`);
 
        
         const response = await this._request(

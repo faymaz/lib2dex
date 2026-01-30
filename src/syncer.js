@@ -123,28 +123,37 @@ class Syncer {
             const result = await this.dexcomClient.uploadReadings(toSync);
 
            
+            let uploadVerified = false;
             try {
-                const dexcomValues = await this.dexcomClient.readLatestValues(1, 60);
+                const dexcomValues = await this.dexcomClient.readLatestValues(1, 1440);
                 if (dexcomValues.length > 0) {
                     const dexVal = dexcomValues[0];
                     const match = dexVal.ST && dexVal.ST.match(/Date\((\d+)\)/);
                     const dexTime = match ? new Date(parseInt(match[1])) : null;
-                    const latestTime = latest.timestamp;
-                    const timeDiff = dexTime ? Math.abs(dexTime - latestTime) / 1000 : -1;
+                    const dexTimeStr = dexTime ? dexTime.toISOString() : 'unknown';
+                    const latestTimeStr = latest.timestamp.toISOString();
 
-                    if (dexVal.Value === latest.value && timeDiff < 60) {
-                        console.log(`[Sync] Verified: ${dexVal.Value} mg/dL in Dexcom`);
+                   
+                    if (dexTime && dexTime.getTime() >= latest.timestamp.getTime()) {
+                        console.log(`[Sync] Verified: ${dexVal.Value} mg/dL @ ${dexTimeStr}`);
+                        uploadVerified = true;
                     } else {
-                        console.log(`[Sync] Warning: Dexcom shows ${dexVal.Value} mg/dL, expected ${latest.value}`);
+                        console.log(`[Sync] NOT STORED! Dexcom latest: ${dexVal.Value} @ ${dexTimeStr}`);
+                        console.log(`[Sync]            We uploaded: ${latest.value} @ ${latestTimeStr}`);
                     }
                 }
             } catch (e) {
                
+                uploadVerified = true;
             }
 
            
-            for (const r of toSync) {
-                this.syncedTimestamps.add(r.timestamp.getTime());
+            if (uploadVerified) {
+                for (const r of toSync) {
+                    this.syncedTimestamps.add(r.timestamp.getTime());
+                }
+            } else {
+                console.log(`[Sync] Will retry these readings next cycle`);
             }
 
            
