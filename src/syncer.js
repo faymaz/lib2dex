@@ -48,11 +48,15 @@ class Syncer {
 
     /**
      * Generate a serial number for the virtual receiver
+     * Format: SM + 8 digits (matching Dexcom receiver format)
      */
     _generateSerialNumber() {
-        // Format: LB-XXXXXX (Libre Bridge)
-        const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-        return `LB-${random}`;
+        // Generate stable serial from username hash (like Libre3View extension)
+        const hash = this.dexcomClient.username.split('').reduce((acc, char) => {
+            return ((acc << 5) - acc) + char.charCodeAt(0);
+        }, 0);
+        const absHash = Math.abs(hash);
+        return `SM${absHash.toString().padStart(8, '0').slice(0, 8)}`;
     }
 
     /**

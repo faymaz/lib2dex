@@ -17,27 +17,17 @@ const DEXCOM_URLS = {
 // Dexcom application ID (required for API access)
 const APPLICATION_ID = 'd89443d2-327c-4a6f-89e5-496bbb0317db';
 
-// Trend mapping from LibreView (1-7) to Dexcom format
-const TREND_MAP = {
-    1: 'DoubleDown',      // Falling quickly
-    2: 'SingleDown',      // Falling
-    3: 'FortyFiveDown',   // Falling slowly
-    4: 'Flat',            // Stable
-    5: 'FortyFiveUp',     // Rising slowly
-    6: 'SingleUp',        // Rising
-    7: 'DoubleUp'         // Rising quickly
-};
-
-const TREND_VALUES = {
-    'DoubleDown': 1,
-    'SingleDown': 2,
-    'FortyFiveDown': 3,
-    'Flat': 4,
-    'FortyFiveUp': 5,
-    'SingleUp': 6,
-    'DoubleUp': 7,
-    'NotComputable': 0,
-    'RateOutOfRange': 0
+// Trend mapping from LibreView (1-7) to Dexcom numeric format
+// LibreView: 1=falling fast, 4=flat, 7=rising fast
+// Dexcom: 1=rising fast, 4=flat, 7=falling fast (inverted!)
+const LIBRE_TO_DEXCOM_TREND = {
+    1: 7,   // DOUBLE_DOWN (falling quickly)
+    2: 6,   // SINGLE_DOWN (falling)
+    3: 5,   // FORTY_FIVE_DOWN (falling slowly)
+    4: 4,   // FLAT (stable)
+    5: 3,   // FORTY_FIVE_UP (rising slowly)
+    6: 2,   // SINGLE_UP (rising)
+    7: 1    // DOUBLE_UP (rising quickly)
 };
 
 class DexcomClient {
@@ -188,6 +178,7 @@ class DexcomClient {
 
     /**
      * Register as a virtual receiver
+     * Note: This step may not be strictly necessary with the new upload format
      */
     async registerReceiver() {
         await this.ensureAuthenticated();
@@ -198,11 +189,11 @@ class DexcomClient {
 
         console.log('[Dexcom] Registering virtual receiver...');
 
+        // sessionId as URL query parameter
         const response = await this._request(
             'POST',
-            '/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver',
+            `/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver?sessionId=${this.sessionId}`,
             {
-                sessionId: this.sessionId,
                 serialNumber: this.serialNumber
             }
         );
@@ -237,17 +228,19 @@ class DexcomClient {
             return { uploaded: 0, skipped: 0 };
         }
 
-        // Convert readings to Dexcom format
-        const records = readings.map(r => this._formatForDexcom(r));
+        // Convert readings to Dexcom format (Egvs array)
+        const egvs = readings.map(r => this._formatForDexcom(r));
 
-        console.log(`[Dexcom] Uploading ${records.length} readings...`);
+        console.log(`[Dexcom] Uploading ${egvs.length} readings...`);
 
+        // Correct payload format: SN at top level, Egvs array
+        // sessionId as URL query parameter
         const response = await this._request(
             'POST',
-            '/ShareWebServices/Services/Publisher/PostReceiverEgvRecords',
+            `/ShareWebServices/Services/Publisher/PostReceiverEgvRecords?sessionId=${this.sessionId}`,
             {
-                sessionId: this.sessionId,
-                records: records
+                SN: this.serialNumber,
+                Egvs: egvs
             }
         );
 
@@ -269,31 +262,32 @@ class DexcomClient {
             throw new Error(`Failed to upload readings: ${JSON.stringify(response.data)}`);
         }
 
-        console.log(`[Dexcom] Successfully uploaded ${records.length} readings`);
-        return { uploaded: records.length, skipped: 0 };
+        console.log(`[Dexcom] Successfully uploaded ${egvs.length} readings`);
+        return { uploaded: egvs.length, skipped: 0 };
     }
 
     /**
      * Format a reading for Dexcom API
+     * Uses correct Dexcom EGV format: DT, ST, WT, Value, Trend (numeric)
      */
     _formatForDexcom(reading) {
-        // Convert timestamp to Dexcom format (milliseconds since Unix epoch in .NET ticks style)
+        // Convert timestamp to Dexcom format
         const dt = reading.timestamp instanceof Date ? reading.timestamp : new Date(reading.timestamp);
         const ticks = dt.getTime();
 
-        // Get trend value (convert from LibreView format if needed)
-        let trend = reading.trend;
-        if (typeof trend === 'number') {
-            trend = TREND_MAP[trend] || 'Flat';
+        // Convert LibreView trend (1-7) to Dexcom numeric trend (1-7, inverted)
+        let trend = 4;  // Default: Flat
+        if (typeof reading.trend === 'number') {
+            trend = LIBRE_TO_DEXCOM_TREND[reading.trend] || 4;
         }
 
+        // Dexcom EGV format
         return {
-            RecordNumber: ticks,
-            SystemTime: `/Date(${ticks})/`,
-            DisplayTime: `/Date(${ticks})/`,
+            DT: `/Date(${ticks})/`,   // Display Time
+            ST: `/Date(${ticks})/`,   // System Time
+            WT: `/Date(${ticks})/`,   // Wall Time
             Value: reading.value,
-            Trend: trend,
-            SerialNumber: this.serialNumber
+            Trend: trend              // Numeric trend (1-9)
         };
     }
 
@@ -351,5 +345,4 @@ class DexcomClient {
 // Export class and constants
 module.exports = DexcomClient;
 module.exports.DEXCOM_URLS = DEXCOM_URLS;
-module.exports.TREND_MAP = TREND_MAP;
-module.exports.TREND_VALUES = TREND_VALUES;
+module.exports.LIBRE_TO_DEXCOM_TREND = LIBRE_TO_DEXCOM_TREND;
