@@ -9,6 +9,7 @@
  */
 
 const https = require('https');
+const zlib = require('zlib');
 
 class LibreViewClient {
     constructor(email, password, region = '') {
@@ -25,22 +26,19 @@ class LibreViewClient {
             : 'api.libreview.io';
 
         // API version and headers (simulating LibreLinkUp Android app)
-        // More complete headers to avoid Cloudflare detection
+        // Headers based on actual LibreLinkUp app traffic
         this.headers = {
-            'Accept': 'application/json',
-            'Accept-Encoding': 'gzip, deflate, br',
             'Accept-Language': 'en-US,en;q=0.9',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
             'Content-Type': 'application/json',
             'product': 'llu.android',
-            'version': '4.12.0',
-            'User-Agent': 'Mozilla/5.0'
+            'version': '4.12.0'
         };
 
         // Retry configuration
         this.maxRetries = 3;
-        this.retryDelayMs = 5000;
+        this.retryDelayMs = 10000;  // Start with 10 seconds
     }
 
     /**
@@ -48,6 +46,32 @@ class LibreViewClient {
      */
     _sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Decompress response body if needed
+     */
+    _decompressBody(buffer, encoding) {
+        return new Promise((resolve, reject) => {
+            if (encoding === 'gzip') {
+                zlib.gunzip(buffer, (err, result) => {
+                    if (err) reject(err);
+                    else resolve(result.toString('utf8'));
+                });
+            } else if (encoding === 'deflate') {
+                zlib.inflate(buffer, (err, result) => {
+                    if (err) reject(err);
+                    else resolve(result.toString('utf8'));
+                });
+            } else if (encoding === 'br') {
+                zlib.brotliDecompress(buffer, (err, result) => {
+                    if (err) reject(err);
+                    else resolve(result.toString('utf8'));
+                });
+            } else {
+                resolve(buffer.toString('utf8'));
+            }
+        });
     }
 
     /**
@@ -68,13 +92,30 @@ class LibreViewClient {
             }
 
             const req = https.request(options, (res) => {
-                let body = '';
-                res.on('data', chunk => body += chunk);
-                res.on('end', () => {
+                const chunks = [];
+                res.on('data', chunk => chunks.push(chunk));
+                res.on('end', async () => {
+                    const buffer = Buffer.concat(chunks);
+                    const encoding = res.headers['content-encoding'];
+
+                    let body;
+                    try {
+                        body = await this._decompressBody(buffer, encoding);
+                    } catch (e) {
+                        body = buffer.toString('utf8');
+                    }
+
                     // Check for Cloudflare errors
                     if (res.statusCode === 403 || res.statusCode === 429 ||
-                        body.includes('error code: 1015') || body.includes('error code: 1020')) {
+                        body.includes('error code: 1015') || body.includes('error code: 1020') ||
+                        body.includes('cloudflare') || body.includes('Cloudflare')) {
                         reject(new Error(`CLOUDFLARE_BLOCKED:${res.statusCode}:${body.substring(0, 100)}`));
+                        return;
+                    }
+
+                    // Check for empty or invalid responses (another sign of rate limiting)
+                    if (!body || body.trim() === '' || body.trim() === '{}') {
+                        reject(new Error(`CLOUDFLARE_BLOCKED:${res.statusCode}:Empty response - likely rate limited`));
                         return;
                     }
 
@@ -82,6 +123,11 @@ class LibreViewClient {
                         const json = JSON.parse(body);
                         resolve({ status: res.statusCode, data: json, headers: res.headers });
                     } catch (e) {
+                        // If we can't parse JSON, might be HTML error page from Cloudflare
+                        if (body.includes('<html') || body.includes('<!DOCTYPE')) {
+                            reject(new Error(`CLOUDFLARE_BLOCKED:${res.statusCode}:HTML response - likely blocked`));
+                            return;
+                        }
                         reject(new Error(`Failed to parse response: ${body.substring(0, 200)}`));
                     }
                 });
@@ -109,9 +155,9 @@ class LibreViewClient {
                 lastError = error;
 
                 if (error.message.startsWith('CLOUDFLARE_BLOCKED')) {
-                    // Exponential backoff for Cloudflare blocks
-                    const delay = this.retryDelayMs * Math.pow(2, attempt - 1);
-                    console.log(`[LibreView] Cloudflare rate limited. Waiting ${delay/1000}s before retry ${attempt}/${this.maxRetries}...`);
+                    // Exponential backoff for Cloudflare blocks: 10s, 30s, 90s
+                    const delay = this.retryDelayMs * Math.pow(3, attempt - 1);
+                    console.log(`[LibreView] Rate limited (attempt ${attempt}/${this.maxRetries}). Waiting ${Math.round(delay/1000)}s...`);
                     await this._sleep(delay);
                 } else {
                     // Non-Cloudflare error, don't retry
@@ -120,7 +166,8 @@ class LibreViewClient {
             }
         }
 
-        throw new Error(`LibreView API blocked after ${this.maxRetries} retries. Please wait a few minutes. Last error: ${lastError.message}`);
+        // More helpful error message
+        throw new Error(`LibreView API blocked. Your IP may be temporarily blocked by Cloudflare. Please wait 10-15 minutes and try again.`);
     }
 
     /**

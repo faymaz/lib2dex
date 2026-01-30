@@ -148,39 +148,87 @@ async function main() {
     }
 }
 
-// Startup delay file to prevent hammering API on PM2 restarts
+// Startup delay to prevent hammering API on PM2 restarts
 const fs = require('fs');
-const CRASH_FILE = '/tmp/lib2dex-last-crash';
+const path = require('path');
+const CRASH_FILE = '/tmp/lib2dex-crash-state.json';
 
 async function checkStartupDelay() {
     try {
-        if (fs.existsSync(CRASH_FILE)) {
-            const lastCrash = parseInt(fs.readFileSync(CRASH_FILE, 'utf8'));
-            const timeSinceLastCrash = Date.now() - lastCrash;
-            const minDelay = 60000; // 1 minute minimum between restarts
+        let state = { lastCrash: 0, crashCount: 0 };
 
-            if (timeSinceLastCrash < minDelay) {
-                const waitTime = minDelay - timeSinceLastCrash;
-                console.log(`[Startup] Waiting ${Math.round(waitTime/1000)}s to avoid rate limiting...`);
-                await new Promise(resolve => setTimeout(resolve, waitTime));
+        if (fs.existsSync(CRASH_FILE)) {
+            state = JSON.parse(fs.readFileSync(CRASH_FILE, 'utf8'));
+        }
+
+        const timeSinceLastCrash = Date.now() - state.lastCrash;
+        const fiveMinutes = 5 * 60 * 1000;
+
+        // Reset crash count if last crash was more than 5 minutes ago
+        if (timeSinceLastCrash > fiveMinutes) {
+            state.crashCount = 0;
+        }
+
+        // Calculate delay based on consecutive crashes (exponential backoff)
+        // 1st crash: 2 min, 2nd: 4 min, 3rd: 8 min, max: 15 min
+        if (state.crashCount > 0) {
+            const baseDelay = 2 * 60 * 1000; // 2 minutes
+            const maxDelay = 15 * 60 * 1000; // 15 minutes max
+            const delay = Math.min(baseDelay * Math.pow(2, state.crashCount - 1), maxDelay);
+            const remainingDelay = Math.max(0, delay - timeSinceLastCrash);
+
+            if (remainingDelay > 0) {
+                console.log(`[Startup] Crash #${state.crashCount} detected. Waiting ${Math.round(remainingDelay/1000)}s before retry...`);
+                console.log(`[Startup] This prevents Cloudflare rate limiting. Do NOT restart manually.`);
+                await new Promise(resolve => setTimeout(resolve, remainingDelay));
             }
         }
-    } catch (e) {
-        // Ignore errors reading crash file
-    }
-}
-
-function recordCrash() {
-    try {
-        fs.writeFileSync(CRASH_FILE, Date.now().toString());
     } catch (e) {
         // Ignore errors
     }
 }
 
+function recordCrash() {
+    try {
+        let state = { lastCrash: 0, crashCount: 0 };
+
+        if (fs.existsSync(CRASH_FILE)) {
+            try {
+                state = JSON.parse(fs.readFileSync(CRASH_FILE, 'utf8'));
+            } catch (e) { /* ignore */ }
+        }
+
+        const timeSinceLastCrash = Date.now() - state.lastCrash;
+        const fiveMinutes = 5 * 60 * 1000;
+
+        // Reset count if last crash was > 5 min ago
+        if (timeSinceLastCrash > fiveMinutes) {
+            state.crashCount = 0;
+        }
+
+        state.lastCrash = Date.now();
+        state.crashCount++;
+
+        fs.writeFileSync(CRASH_FILE, JSON.stringify(state));
+    } catch (e) {
+        // Ignore errors
+    }
+}
+
+function clearCrashState() {
+    try {
+        if (fs.existsSync(CRASH_FILE)) {
+            fs.unlinkSync(CRASH_FILE);
+        }
+    } catch (e) { /* ignore */ }
+}
+
 // Run with crash protection
 checkStartupDelay().then(() => {
-    main().catch(err => {
+    main().then(() => {
+        // Successful run, clear crash state
+        clearCrashState();
+    }).catch(err => {
         recordCrash();
         console.error(`FATAL ERROR: ${err.message}`);
         process.exit(1);
