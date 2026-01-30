@@ -120,6 +120,26 @@ class Syncer {
             const result = await this.dexcomClient.uploadReadings(toSync);
 
            
+            try {
+                const dexcomValues = await this.dexcomClient.readLatestValues(1, 60);
+                if (dexcomValues.length > 0) {
+                    const dexVal = dexcomValues[0];
+                    const match = dexVal.ST && dexVal.ST.match(/Date\((\d+)\)/);
+                    const dexTime = match ? new Date(parseInt(match[1])) : null;
+                    const latestTime = latest.timestamp;
+                    const timeDiff = dexTime ? Math.abs(dexTime - latestTime) / 1000 : -1;
+
+                    if (dexVal.Value === latest.value && timeDiff < 60) {
+                        console.log(`[Sync] Verified: ${dexVal.Value} mg/dL in Dexcom`);
+                    } else {
+                        console.log(`[Sync] Warning: Dexcom shows ${dexVal.Value} mg/dL, expected ${latest.value}`);
+                    }
+                }
+            } catch (e) {
+               
+            }
+
+           
             for (const r of toSync) {
                 this.syncedTimestamps.add(r.timestamp.getTime());
             }

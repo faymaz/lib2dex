@@ -224,8 +224,14 @@ class DexcomClient {
             return this.uploadReadings(readings);
         }
 
+       
         if (response.status !== 200) {
             throw new Error(`Failed to upload readings: ${JSON.stringify(response.data)}`);
+        }
+
+       
+        if (response.data && response.data !== '') {
+            console.log(`[Dexcom] API response: ${JSON.stringify(response.data).substring(0, 100)}`);
         }
 
         return { uploaded: egvs.length, skipped: 0 };
