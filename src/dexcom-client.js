@@ -178,7 +178,8 @@ class DexcomClient {
 
     /**
      * Register as a virtual receiver
-     * Note: This step may not be strictly necessary with the new upload format
+     * Note: Libre3View extension doesn't do this step - it uploads directly.
+     * This may be optional, but we include it for compatibility.
      */
     async registerReceiver() {
         await this.ensureAuthenticated();
@@ -189,12 +190,12 @@ class DexcomClient {
 
         console.log('[Dexcom] Registering virtual receiver...');
 
-        // sessionId as URL query parameter
+        // sessionId as URL query parameter, correct field name is DeviceSerialNumber
         const response = await this._request(
             'POST',
             `/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver?sessionId=${this.sessionId}`,
             {
-                serialNumber: this.serialNumber
+                DeviceSerialNumber: this.serialNumber
             }
         );
 
@@ -205,11 +206,14 @@ class DexcomClient {
             return this.registerReceiver();
         }
 
+        // If registration fails, log warning but continue (Libre3View doesn't use this step)
         if (response.status !== 200) {
-            throw new Error(`Failed to register receiver: ${JSON.stringify(response.data)}`);
+            console.log('[Dexcom] Warning: Receiver registration failed, continuing anyway...');
+            console.log(`[Dexcom] ${JSON.stringify(response.data)}`);
+        } else {
+            console.log('[Dexcom] Virtual receiver registered');
         }
 
-        console.log('[Dexcom] Virtual receiver registered');
         return true;
     }
 
