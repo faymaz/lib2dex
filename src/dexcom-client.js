@@ -52,7 +52,7 @@ class DexcomClient {
                 path: path,
                 method: method,
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json; charset=utf-8',
                     'Accept': 'application/json',
                     'User-Agent': 'Dexcom Share/3.0.2.11'
                 }
@@ -173,11 +173,43 @@ class DexcomClient {
 
     /**
      * Register as a virtual receiver
-     * Note: This step is NOT required - Libre3View extension skips it entirely.
+     * This associates the serial number with the account for uploads.
      */
     async registerReceiver() {
+        await this.ensureAuthenticated();
+
+        if (!this.serialNumber) {
+            throw new Error('Serial number not set');
+        }
+
+        console.log(`[Dexcom] Registering receiver: ${this.serialNumber}`);
+
        
-        return true;
+        const response = await this._request(
+            'POST',
+            `/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver?sessionId=${this.sessionId}&sn=${encodeURIComponent(this.serialNumber)}`,
+            null
+        );
+
+        if (response.status === 200) {
+            console.log('[Dexcom] Receiver registered');
+            return true;
+        }
+
+       
+        const response2 = await this._request(
+            'POST',
+            `/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver?sessionId=${this.sessionId}`,
+            this.serialNumber 
+        );
+
+        if (response2.status === 200) {
+            console.log('[Dexcom] Receiver registered (alt method)');
+            return true;
+        }
+
+        console.log('[Dexcom] Warning: Receiver registration failed, continuing...');
+        return false;
     }
 
     /**
@@ -200,14 +232,19 @@ class DexcomClient {
 
 
        
+        const payload = {
+            SN: this.serialNumber,
+            Egvs: egvs
+        };
+
+       
+        console.log(`[Dexcom] Upload: SN=${this.serialNumber}, ${egvs.length} records, latest=${egvs[0]?.Value} mg/dL`);
+
        
         const response = await this._request(
             'POST',
             `/ShareWebServices/Services/Publisher/PostReceiverEgvRecords?sessionId=${this.sessionId}`,
-            {
-                SN: this.serialNumber,
-                Egvs: egvs
-            }
+            payload
         );
 
        

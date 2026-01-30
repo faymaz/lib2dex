@@ -75,6 +75,9 @@ class Syncer {
         console.log('[Init] Connecting to Dexcom Share...');
         await this.dexcomClient.authenticate();
 
+       
+        await this.dexcomClient.registerReceiver();
+
         console.log('[Init] Ready!');
         console.log(`       Serial: ${this.dexcomClient.serialNumber} | Interval: ${this.syncInterval / 60000}min`);
     }
