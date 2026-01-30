@@ -20,14 +20,14 @@ class LibreViewClient {
         this.token = null;
         this.tokenExpiry = null;
         this.patientId = null;
-        this.hashedAccountId = null;  // Required for authenticated requests
+        this.hashedAccountId = null; 
 
-        // Base URL - will be updated after region redirect
+       
         this.baseUrl = region
             ? `api-${region}.libreview.io`
             : 'api.libreview.io';
 
-        // API headers - EXACTLY matching the working Libre3View extension
+       
         this.headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
@@ -36,9 +36,9 @@ class LibreViewClient {
             'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
         };
 
-        // Retry configuration
+       
         this.maxRetries = 3;
-        this.retryDelayMs = 10000;  // Start with 10 seconds
+        this.retryDelayMs = 10000; 
     }
 
     /**
@@ -89,7 +89,7 @@ class LibreViewClient {
 
             if (this.token) {
                 options.headers['Authorization'] = `Bearer ${this.token}`;
-                // Include account-id header for authenticated requests (required by LibreView API)
+               
                 if (this.hashedAccountId) {
                     options.headers['account-id'] = this.hashedAccountId;
                 }
@@ -109,7 +109,7 @@ class LibreViewClient {
                         body = buffer.toString('utf8');
                     }
 
-                    // Check for Cloudflare errors
+                   
                     if (res.statusCode === 403 || res.statusCode === 429 ||
                         body.includes('error code: 1015') || body.includes('error code: 1020') ||
                         body.includes('cloudflare') || body.includes('Cloudflare')) {
@@ -117,7 +117,7 @@ class LibreViewClient {
                         return;
                     }
 
-                    // Check for empty or invalid responses (another sign of rate limiting)
+                   
                     if (!body || body.trim() === '' || body.trim() === '{}') {
                         reject(new Error(`CLOUDFLARE_BLOCKED:${res.statusCode}:Empty response - likely rate limited`));
                         return;
@@ -127,7 +127,7 @@ class LibreViewClient {
                         const json = JSON.parse(body);
                         resolve({ status: res.statusCode, data: json, headers: res.headers });
                     } catch (e) {
-                        // If we can't parse JSON, might be HTML error page from Cloudflare
+                       
                         if (body.includes('<html') || body.includes('<!DOCTYPE')) {
                             reject(new Error(`CLOUDFLARE_BLOCKED:${res.statusCode}:HTML response - likely blocked`));
                             return;
@@ -159,41 +159,39 @@ class LibreViewClient {
                 lastError = error;
 
                 if (error.message.startsWith('CLOUDFLARE_BLOCKED')) {
-                    // Exponential backoff for Cloudflare blocks: 10s, 30s, 90s
+                   
                     const delay = this.retryDelayMs * Math.pow(3, attempt - 1);
                     console.log(`[LibreView] Rate limited (attempt ${attempt}/${this.maxRetries}). Waiting ${Math.round(delay/1000)}s...`);
                     await this._sleep(delay);
                 } else {
-                    // Non-Cloudflare error, don't retry
+                   
                     throw error;
                 }
             }
         }
 
-        // More helpful error message
+       
         throw new Error(`LibreView API blocked. Your IP may be temporarily blocked by Cloudflare. Please wait 10-15 minutes and try again.`);
     }
 
     /**
      * Authenticate with LibreView
      */
-    async authenticate() {
-        console.log('[LibreView] Authenticating...');
+    async authenticate(isRetry = false) {
+        if (!isRetry) console.log('[LibreView] Authenticating...');
 
         const response = await this._request('POST', '/llu/auth/login', {
             email: this.email,
             password: this.password
         });
 
-        // Handle region redirect
+       
         if (response.data.data && response.data.data.redirect) {
             const newRegion = response.data.data.region;
-            console.log(`[LibreView] Redirecting to region: ${newRegion}`);
             this.baseUrl = `api-${newRegion}.libreview.io`;
             this.region = newRegion;
-
-            // Retry authentication with new region
-            return this.authenticate();
+           
+            return this.authenticate(true);
         }
 
         if (response.data.status !== 0 || !response.data.data || !response.data.data.authTicket) {
@@ -203,14 +201,14 @@ class LibreViewClient {
         this.token = response.data.data.authTicket.token;
         this.tokenExpiry = new Date(response.data.data.authTicket.expires * 1000);
 
-        // Generate hashed account ID (SHA256 of user ID) - required for authenticated requests
+       
         if (response.data.data.user && response.data.data.user.id) {
             this.hashedAccountId = crypto.createHash('sha256')
                 .update(response.data.data.user.id)
                 .digest('hex');
         }
 
-        console.log(`[LibreView] Authenticated successfully (region: ${this.region || 'default'})`);
+        console.log(`[LibreView] OK (region: ${this.region || 'default'})`);
         return true;
     }
 
@@ -237,7 +235,6 @@ class LibreViewClient {
     async getConnections() {
         await this.ensureAuthenticated();
 
-        console.log('[LibreView] Fetching connections...');
         const response = await this._request('GET', '/llu/connections');
 
         if (response.data.status !== 0 || !response.data.data) {
@@ -245,7 +242,6 @@ class LibreViewClient {
         }
 
         const connections = response.data.data;
-        console.log(`[LibreView] Found ${connections.length} connection(s)`);
 
         return connections;
     }
@@ -262,9 +258,8 @@ class LibreViewClient {
             throw new Error('No LibreLinkUp connections found. Please set up follower sharing in the LibreLinkUp app.');
         }
 
-        // Use the first connection
+       
         this.patientId = connections[0].patientId;
-        console.log(`[LibreView] Using patient ID: ${this.patientId}`);
 
         return this.patientId;
     }
@@ -277,7 +272,6 @@ class LibreViewClient {
 
         const pid = patientId || await this.getPatientId();
 
-        console.log('[LibreView] Fetching glucose readings...');
         const response = await this._request('GET', `/llu/connections/${pid}/graph`);
 
         if (response.data.status !== 0 || !response.data.data) {
@@ -287,23 +281,23 @@ class LibreViewClient {
         const data = response.data.data;
         const readings = [];
 
-        // Get current/latest reading
+       
         if (data.connection && data.connection.glucoseMeasurement) {
             const gm = data.connection.glucoseMeasurement;
             readings.push(this._formatReading(gm));
         }
 
-        // Get historical readings from graph data
+       
         if (data.graphData && Array.isArray(data.graphData)) {
             for (const point of data.graphData) {
                 readings.push(this._formatReading(point));
             }
         }
 
-        // Sort by timestamp descending (newest first)
+       
         readings.sort((a, b) => b.timestamp - a.timestamp);
 
-        // Remove duplicates based on timestamp
+       
         const unique = [];
         const seen = new Set();
         for (const r of readings) {
@@ -314,7 +308,7 @@ class LibreViewClient {
             }
         }
 
-        console.log(`[LibreView] Retrieved ${unique.length} glucose readings`);
+       
         return unique;
     }
 
@@ -322,7 +316,7 @@ class LibreViewClient {
      * Format a reading to standard format
      */
     _formatReading(data) {
-        // Parse timestamp
+       
         let timestamp;
         if (data.FactoryTimestamp) {
             timestamp = new Date(data.FactoryTimestamp);
@@ -332,11 +326,11 @@ class LibreViewClient {
             timestamp = new Date();
         }
 
-        // Get glucose value
+       
         const value = data.ValueInMgPerDl || data.Value || data.value || 0;
 
-        // Get trend (LibreView uses 1-7 scale)
-        const trend = data.TrendArrow || data.trendArrow || 4; // 4 = stable
+       
+        const trend = data.TrendArrow || data.trendArrow || 4;
 
         return {
             value: value,

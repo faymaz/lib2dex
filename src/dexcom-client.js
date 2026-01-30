@@ -21,13 +21,13 @@ const APPLICATION_ID = 'd89443d2-327c-4a6f-89e5-496bbb0317db';
 // LibreView: 1=falling fast, 4=flat, 7=rising fast
 // Dexcom: 1=rising fast, 4=flat, 7=falling fast (inverted!)
 const LIBRE_TO_DEXCOM_TREND = {
-    1: 7,   // DOUBLE_DOWN (falling quickly)
-    2: 6,   // SINGLE_DOWN (falling)
-    3: 5,   // FORTY_FIVE_DOWN (falling slowly)
-    4: 4,   // FLAT (stable)
-    5: 3,   // FORTY_FIVE_UP (rising slowly)
-    6: 2,   // SINGLE_UP (rising)
-    7: 1    // DOUBLE_UP (rising quickly)
+    1: 7,  
+    2: 6,  
+    3: 5,  
+    4: 4,  
+    5: 3,  
+    6: 2,  
+    7: 1   
 };
 
 class DexcomClient {
@@ -63,7 +63,7 @@ class DexcomClient {
                 res.on('data', chunk => body += chunk);
                 res.on('end', () => {
                     try {
-                        // Handle empty responses
+                       
                         if (!body || body.trim() === '') {
                             resolve({ status: res.statusCode, data: null });
                             return;
@@ -71,7 +71,7 @@ class DexcomClient {
                         const json = JSON.parse(body);
                         resolve({ status: res.statusCode, data: json });
                     } catch (e) {
-                        // Return raw body if not JSON
+                       
                         resolve({ status: res.statusCode, data: body });
                     }
                 });
@@ -90,8 +90,6 @@ class DexcomClient {
      * Authenticate with Dexcom Share (Step 1: Get Account ID)
      */
     async _authenticateAccount() {
-        console.log('[Dexcom] Authenticating account...');
-
         const response = await this._request(
             'POST',
             '/ShareWebServices/Services/General/AuthenticatePublisherAccount',
@@ -106,9 +104,8 @@ class DexcomClient {
             throw new Error(`Account authentication failed: ${JSON.stringify(response.data)}`);
         }
 
-        // Response is the account ID as a string
+       
         this.accountId = response.data.replace(/"/g, '');
-        console.log(`[Dexcom] Account authenticated`);
         return this.accountId;
     }
 
@@ -119,8 +116,6 @@ class DexcomClient {
         if (!this.accountId) {
             await this._authenticateAccount();
         }
-
-        console.log('[Dexcom] Getting session...');
 
         const response = await this._request(
             'POST',
@@ -136,9 +131,8 @@ class DexcomClient {
             throw new Error(`Session authentication failed: ${JSON.stringify(response.data)}`);
         }
 
-        // Response is the session ID as a string
+       
         this.sessionId = response.data.replace(/"/g, '');
-        console.log('[Dexcom] Session established');
         return this.sessionId;
     }
 
@@ -148,6 +142,7 @@ class DexcomClient {
     async authenticate() {
         await this._authenticateAccount();
         await this._authenticateSession();
+        console.log('[Dexcom] OK');
         return true;
     }
 
@@ -178,42 +173,10 @@ class DexcomClient {
 
     /**
      * Register as a virtual receiver
-     * Note: Libre3View extension doesn't do this step - it uploads directly.
-     * This may be optional, but we include it for compatibility.
+     * Note: This step is NOT required - Libre3View extension skips it entirely.
      */
     async registerReceiver() {
-        await this.ensureAuthenticated();
-
-        if (!this.serialNumber) {
-            throw new Error('Serial number not set. Call setSerialNumber() first.');
-        }
-
-        console.log('[Dexcom] Registering virtual receiver...');
-
-        // sessionId as URL query parameter, correct field name is DeviceSerialNumber
-        const response = await this._request(
-            'POST',
-            `/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver?sessionId=${this.sessionId}`,
-            {
-                DeviceSerialNumber: this.serialNumber
-            }
-        );
-
-        // Check for session expired
-        if (response.status === 500 && response.data && response.data.Code === 'SessionIdNotFound') {
-            console.log('[Dexcom] Session expired, re-authenticating...');
-            await this.reauthenticate();
-            return this.registerReceiver();
-        }
-
-        // If registration fails, log warning but continue (Libre3View doesn't use this step)
-        if (response.status !== 200) {
-            console.log('[Dexcom] Warning: Receiver registration failed, continuing anyway...');
-            console.log(`[Dexcom] ${JSON.stringify(response.data)}`);
-        } else {
-            console.log('[Dexcom] Virtual receiver registered');
-        }
-
+       
         return true;
     }
 
@@ -232,13 +195,12 @@ class DexcomClient {
             return { uploaded: 0, skipped: 0 };
         }
 
-        // Convert readings to Dexcom format (Egvs array)
+       
         const egvs = readings.map(r => this._formatForDexcom(r));
 
-        console.log(`[Dexcom] Uploading ${egvs.length} readings...`);
 
-        // Correct payload format: SN at top level, Egvs array
-        // sessionId as URL query parameter
+       
+       
         const response = await this._request(
             'POST',
             `/ShareWebServices/Services/Publisher/PostReceiverEgvRecords?sessionId=${this.sessionId}`,
@@ -248,14 +210,14 @@ class DexcomClient {
             }
         );
 
-        // Check for session expired
+       
         if (response.status === 500 && response.data && response.data.Code === 'SessionIdNotFound') {
             console.log('[Dexcom] Session expired, re-authenticating...');
             await this.reauthenticate();
             return this.uploadReadings(readings);
         }
 
-        // Check for rate limiting
+       
         if (response.status === 429) {
             console.log('[Dexcom] Rate limited, waiting...');
             await new Promise(resolve => setTimeout(resolve, 60000));
@@ -266,7 +228,6 @@ class DexcomClient {
             throw new Error(`Failed to upload readings: ${JSON.stringify(response.data)}`);
         }
 
-        console.log(`[Dexcom] Successfully uploaded ${egvs.length} readings`);
         return { uploaded: egvs.length, skipped: 0 };
     }
 
@@ -275,23 +236,23 @@ class DexcomClient {
      * Uses correct Dexcom EGV format: DT, ST, WT, Value, Trend (numeric)
      */
     _formatForDexcom(reading) {
-        // Convert timestamp to Dexcom format
+       
         const dt = reading.timestamp instanceof Date ? reading.timestamp : new Date(reading.timestamp);
         const ticks = dt.getTime();
 
-        // Convert LibreView trend (1-7) to Dexcom numeric trend (1-7, inverted)
-        let trend = 4;  // Default: Flat
+       
+        let trend = 4; 
         if (typeof reading.trend === 'number') {
             trend = LIBRE_TO_DEXCOM_TREND[reading.trend] || 4;
         }
 
-        // Dexcom EGV format
+       
         return {
-            DT: `/Date(${ticks})/`,   // Display Time
-            ST: `/Date(${ticks})/`,   // System Time
-            WT: `/Date(${ticks})/`,   // Wall Time
+            DT: `/Date(${ticks})/`,  
+            ST: `/Date(${ticks})/`,  
+            WT: `/Date(${ticks})/`,  
             Value: reading.value,
-            Trend: trend              // Numeric trend (1-9)
+            Trend: trend             
         };
     }
 
@@ -307,7 +268,7 @@ class DexcomClient {
             null
         );
 
-        // Check for session expired
+       
         if (response.status === 500 && response.data && response.data.Code === 'SessionIdNotFound') {
             console.log('[Dexcom] Session expired, re-authenticating...');
             await this.reauthenticate();
@@ -328,7 +289,7 @@ class DexcomClient {
         try {
             await this.authenticate();
 
-            // Try to read values to verify connection
+           
             const values = await this.readLatestValues(1, 1440);
 
             return {
