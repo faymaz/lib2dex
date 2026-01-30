@@ -10,6 +10,7 @@
 
 const https = require('https');
 const zlib = require('zlib');
+const crypto = require('crypto');
 
 class LibreViewClient {
     constructor(email, password, region = '') {
@@ -19,21 +20,20 @@ class LibreViewClient {
         this.token = null;
         this.tokenExpiry = null;
         this.patientId = null;
+        this.hashedAccountId = null;  // Required for authenticated requests
 
         // Base URL - will be updated after region redirect
         this.baseUrl = region
             ? `api-${region}.libreview.io`
             : 'api.libreview.io';
 
-        // API version and headers (simulating LibreLinkUp Android app)
-        // Headers based on actual LibreLinkUp app traffic
+        // API headers - EXACTLY matching the working Libre3View extension
         this.headers = {
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
             'Content-Type': 'application/json',
+            'Accept': 'application/json',
             'product': 'llu.android',
-            'version': '4.12.0'
+            'version': '4.16.0',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
         };
 
         // Retry configuration
@@ -89,6 +89,10 @@ class LibreViewClient {
 
             if (this.token) {
                 options.headers['Authorization'] = `Bearer ${this.token}`;
+                // Include account-id header for authenticated requests (required by LibreView API)
+                if (this.hashedAccountId) {
+                    options.headers['account-id'] = this.hashedAccountId;
+                }
             }
 
             const req = https.request(options, (res) => {
@@ -199,7 +203,14 @@ class LibreViewClient {
         this.token = response.data.data.authTicket.token;
         this.tokenExpiry = new Date(response.data.data.authTicket.expires * 1000);
 
-        console.log(`[LibreView] Authenticated successfully (expires: ${this.tokenExpiry.toISOString()})`);
+        // Generate hashed account ID (SHA256 of user ID) - required for authenticated requests
+        if (response.data.data.user && response.data.data.user.id) {
+            this.hashedAccountId = crypto.createHash('sha256')
+                .update(response.data.data.user.id)
+                .digest('hex');
+        }
+
+        console.log(`[LibreView] Authenticated successfully (region: ${this.region || 'default'})`);
         return true;
     }
 
