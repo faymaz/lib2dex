@@ -1,6 +1,6 @@
 {
   "name": "lib2dex",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Synchronize glucose data from FreeStyle Libre (LibreView/LibreLinkUp) to Dexcom Share accounts",
   "main": "index.js",
   "bin": {
