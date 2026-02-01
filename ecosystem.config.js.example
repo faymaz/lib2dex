@@ -1,0 +1,54 @@
+/**
+ * Lib2Dex PM2 Ecosystem Configuration
+ *
+ * Copy this file to ecosystem.config.js and fill in your credentials.
+ *
+ * Usage:
+ *   pm2 start ecosystem.config.js
+ *   pm2 restart lib2dex
+ *   pm2 logs lib2dex
+ *   pm2 stop lib2dex
+ */
+
+module.exports = {
+  apps: [
+    {
+      name: 'lib2dex',
+      script: 'index.js',
+      watch: false,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 60000, // 1 minute delay between restarts
+      env: {
+        // Source account (LibreView/LibreLinkUp - where data is read from)
+        // Note: Use a LibreLinkUp FOLLOWER account, not the primary Libre account
+        // Set up follower sharing in the LibreLinkUp mobile app first
+        SOURCE_EMAIL: 'your_libre_email@example.com',
+        SOURCE_PASSWORD: 'your_libre_password',
+        SOURCE_REGION: 'eu', // eu, us, de, fr, etc.
+
+        // Destination account (Dexcom Share - where data is written to)
+        // Make sure Dexcom Share is enabled in the Dexcom app
+        DEST_USERNAME: 'your_dexcom_username',
+        DEST_PASSWORD: 'your_dexcom_password',
+        DEST_REGION: 'ous', // us or ous (outside US)
+
+        // Sync settings
+        SYNC_INTERVAL_MINUTES: '5',
+        MAX_READINGS_PER_SYNC: '12',
+
+        // Virtual receiver serial number (optional - auto-generated if not set)
+        // SERIAL_NUMBER: 'LB-ABC123',
+
+        // Logging
+        LOG_LEVEL: 'info',
+        // DEBUG: 'true',
+      }
+    }
+  ]
+};
+
+// Quick start:
+//   cp ecosystem.config.js.example ecosystem.config.js
+//   # Edit ecosystem.config.js with your credentials
+//   pm2 start ecosystem.config.js

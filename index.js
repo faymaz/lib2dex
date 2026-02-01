@@ -50,13 +50,15 @@ ENVIRONMENT VARIABLES (create .env file):
   SERIAL_NUMBER            Virtual receiver serial (auto-generated)
   LOG_LEVEL                Logging level: info, debug (default: info)
 
-EXAMPLE:
-  # Create .env file with credentials
+EXAMPLE (.env file):
   cp .env.example .env
-  # Edit .env with your credentials
   nano .env
-  # Run in daemon mode
   lib2dex --daemon
+
+EXAMPLE (PM2 with ecosystem.config.js):
+  cp ecosystem.config.js.example ecosystem.config.js
+  nano ecosystem.config.js
+  pm2 start ecosystem.config.js
 
 NOTES:
   - LibreLinkUp requires a follower account (not the primary Libre account)
@@ -81,8 +83,9 @@ function validateConfig() {
     if (missing.length > 0) {
         console.error('ERROR: Missing required environment variables:');
         missing.forEach(key => console.error(`  - ${key}`));
-        console.error('\nCreate a .env file with these variables or set them in your environment.');
-        console.error('See .env.example for a template.\n');
+        console.error('\nOptions:');
+        console.error('  1. Create a .env file (see .env.example)');
+        console.error('  2. Use PM2 with ecosystem.config.js (see ecosystem.config.js.example)\n');
         process.exit(1);
     }
 
