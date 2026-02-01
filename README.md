@@ -62,13 +62,13 @@ npm link  # Optional: makes 'lib2dex' command available globally
 
 ## Configuration
 
-1. Copy the example configuration:
+### Option 1: Using .env file
 
 ```bash
 cp .env.example .env
 ```
 
-2. Edit `.env` with your credentials:
+Edit `.env` with your credentials:
 
 ```env
 # Source account (LibreView/LibreLinkUp - where data is read from)
@@ -84,6 +84,46 @@ DEST_REGION=ous
 # Sync settings
 SYNC_INTERVAL_MINUTES=5
 MAX_READINGS_PER_SYNC=12
+```
+
+### Option 2: Using PM2 ecosystem.config.js (Recommended for PM2)
+
+```bash
+cp ecosystem.config.js.example ecosystem.config.js
+```
+
+Edit `ecosystem.config.js` with your credentials:
+
+```javascript
+module.exports = {
+  apps: [
+    {
+      name: 'lib2dex',
+      script: 'index.js',
+      watch: false,
+      autorestart: true,
+      env: {
+        SOURCE_EMAIL: 'your_libre_email@example.com',
+        SOURCE_PASSWORD: 'your_libre_password',
+        SOURCE_REGION: 'eu',
+
+        DEST_USERNAME: 'your_dexcom_username',
+        DEST_PASSWORD: 'your_dexcom_password',
+        DEST_REGION: 'ous',
+
+        SYNC_INTERVAL_MINUTES: '5',
+        MAX_READINGS_PER_SYNC: '12',
+        LOG_LEVEL: 'info',
+      }
+    }
+  ]
+};
+```
+
+Then start with PM2:
+
+```bash
+pm2 start ecosystem.config.js
 ```
 
 ## Usage
@@ -165,6 +205,19 @@ sudo systemctl start lib2dex
 ```
 
 ### Using PM2
+
+**Option A: With ecosystem.config.js (Recommended)**
+
+```bash
+npm install -g pm2
+cp ecosystem.config.js.example ecosystem.config.js
+# Edit ecosystem.config.js with your credentials
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+```
+
+**Option B: With .env file**
 
 ```bash
 npm install -g pm2
@@ -268,8 +321,8 @@ If you see rate limiting errors, increase `SYNC_INTERVAL_MINUTES` to reduce API 
 
 ## Security Notes
 
-- Credentials are stored locally in your `.env` file
-- Never commit your `.env` file to version control
+- Credentials are stored locally in your `.env` or `ecosystem.config.js` file
+- Never commit credential files to version control (both are in `.gitignore`)
 - All API communication uses HTTPS
 - No data is stored except temporary timestamps for deduplication
 
