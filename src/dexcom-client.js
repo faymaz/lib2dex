@@ -250,13 +250,14 @@ class DexcomClient {
         );
 
        
-        if (response.status === 500 && response.data && response.data.Code === 'SessionIdNotFound') {
+        if (response.status === 500 && response.data &&
+            (response.data.Code === 'SessionIdNotFound' || response.data.Code === 'SessionNotValid')) {
             console.log('[Dexcom] Session expired, re-authenticating...');
             await this.reauthenticate();
             return this.uploadReadings(readings);
         }
 
-       
+        // Handle rate limiting
         if (response.status === 429) {
             console.log('[Dexcom] Rate limited, waiting...');
             await new Promise(resolve => setTimeout(resolve, 60000));
@@ -314,7 +315,8 @@ class DexcomClient {
         );
 
        
-        if (response.status === 500 && response.data && response.data.Code === 'SessionIdNotFound') {
+        if (response.status === 500 && response.data &&
+            (response.data.Code === 'SessionIdNotFound' || response.data.Code === 'SessionNotValid')) {
             console.log('[Dexcom] Session expired, re-authenticating...');
             await this.reauthenticate();
             return this.readLatestValues(count, minutes);
