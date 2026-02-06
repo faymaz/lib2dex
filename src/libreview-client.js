@@ -147,6 +147,26 @@ class LibreViewClient {
     }
 
     /**
+     * Check if error is a network error that should be retried
+     */
+    _isNetworkError(error) {
+        const networkErrorCodes = [
+            'EAI_AGAIN',      // DNS temporary failure
+            'ENOTFOUND',      // DNS not found
+            'ECONNRESET',     // Connection reset
+            'ECONNREFUSED',   // Connection refused
+            'ETIMEDOUT',      // Connection timed out
+            'EPIPE',          // Broken pipe
+            'EHOSTUNREACH',   // Host unreachable
+            'ENETUNREACH'     // Network unreachable
+        ];
+
+        return networkErrorCodes.some(code =>
+            error.message.includes(code) || error.code === code
+        );
+    }
+
+    /**
      * Make an HTTPS request with retry logic
      */
     async _request(method, path, data = null) {
@@ -159,18 +179,27 @@ class LibreViewClient {
                 lastError = error;
 
                 if (error.message.startsWith('CLOUDFLARE_BLOCKED')) {
-                   
+                    // Rate limited by Cloudflare - wait with exponential backoff
                     const delay = this.retryDelayMs * Math.pow(3, attempt - 1);
                     console.log(`[LibreView] Rate limited (attempt ${attempt}/${this.maxRetries}). Waiting ${Math.round(delay/1000)}s...`);
                     await this._sleep(delay);
+                } else if (this._isNetworkError(error)) {
+                    // Network error - retry with shorter delay
+                    const delay = 5000 * attempt; // 5s, 10s, 15s
+                    console.log(`[LibreView] Network error: ${error.message} (attempt ${attempt}/${this.maxRetries}). Waiting ${Math.round(delay/1000)}s...`);
+                    await this._sleep(delay);
                 } else {
-                   
+                    // Unknown error - don't retry
                     throw error;
                 }
             }
         }
 
-       
+        // Check if it was a network error
+        if (this._isNetworkError(lastError)) {
+            throw new Error(`Network error: ${lastError.message}. Check your internet connection.`);
+        }
+
         throw new Error(`LibreView API blocked. Your IP may be temporarily blocked by Cloudflare. Please wait 10-15 minutes and try again.`);
     }
 

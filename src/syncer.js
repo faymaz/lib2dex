@@ -60,26 +60,43 @@ class Syncer {
     }
 
     /**
-     * Initialize connections
+     * Initialize connections with retry logic
      */
     async initialize() {
         console.log('');
         console.log('Lib2Dex - LibreView to Dexcom Share Sync');
         console.log('-'.repeat(42));
 
-       
-        console.log('[Init] Connecting to LibreView...');
-        await this.libreClient.authenticate();
+        const maxInitRetries = 5;
+        const initRetryDelay = 30000; // 30 seconds between retries
 
-       
-        console.log('[Init] Connecting to Dexcom Share...');
-        await this.dexcomClient.authenticate();
+        for (let attempt = 1; attempt <= maxInitRetries; attempt++) {
+            try {
+                // LibreView connection
+                console.log('[Init] Connecting to LibreView...');
+                await this.libreClient.authenticate();
 
-       
-        await this.dexcomClient.registerReceiver();
+                // Dexcom Share connection
+                console.log('[Init] Connecting to Dexcom Share...');
+                await this.dexcomClient.authenticate();
 
-        console.log('[Init] Ready!');
-        console.log(`       Serial: ${this.dexcomClient.serialNumber} | Interval: ${this.syncInterval / 60000}min`);
+                // Register as virtual receiver
+                await this.dexcomClient.registerReceiver();
+
+                console.log('[Init] Ready!');
+                console.log(`       Serial: ${this.dexcomClient.serialNumber} | Interval: ${this.syncInterval / 60000}min`);
+                return; // Success - exit the retry loop
+            } catch (error) {
+                console.error(`[Init] Connection failed (attempt ${attempt}/${maxInitRetries}): ${error.message}`);
+
+                if (attempt < maxInitRetries) {
+                    console.log(`[Init] Waiting ${initRetryDelay/1000}s before retry...`);
+                    await new Promise(resolve => setTimeout(resolve, initRetryDelay));
+                } else {
+                    throw new Error(`Initialization failed after ${maxInitRetries} attempts: ${error.message}`);
+                }
+            }
+        }
     }
 
     /**
@@ -172,7 +189,17 @@ class Syncer {
             };
 
         } catch (error) {
-            console.error(`[Sync] Error: ${error.message}`);
+            // Categorize the error for better logging
+            let errorType = 'Error';
+            if (error.message.includes('Network error') || error.message.includes('EAI_AGAIN')) {
+                errorType = 'Network error';
+            } else if (error.message.includes('authentication') || error.message.includes('Authentication')) {
+                errorType = 'Authentication error';
+            } else if (error.message.includes('Rate limited') || error.message.includes('CLOUDFLARE')) {
+                errorType = 'Rate limit error';
+            }
+
+            console.error(`[Sync] ${errorType}: ${error.message}`);
             this.stats.errors++;
             this.stats.lastError = error.message;
             throw error;
@@ -206,26 +233,51 @@ class Syncer {
 
         console.log('[Daemon] Running... (Ctrl+C to stop)');
 
-       
-        await this.sync();
+        // Track consecutive errors for re-authentication
+        let consecutiveErrors = 0;
+        const maxConsecutiveErrors = 3;
 
-       
+        // Initial sync
+        try {
+            await this.sync();
+            consecutiveErrors = 0;
+        } catch (error) {
+            console.error(`[Daemon] Initial sync error: ${error.message}`);
+            consecutiveErrors++;
+        }
+
+        // Continuous sync loop
         const syncLoop = async () => {
             try {
+                // If too many consecutive errors, try to re-authenticate
+                if (consecutiveErrors >= maxConsecutiveErrors) {
+                    console.log(`[Daemon] ${consecutiveErrors} consecutive errors, attempting re-authentication...`);
+                    try {
+                        await this.libreClient.authenticate();
+                        await this.dexcomClient.reauthenticate();
+                        console.log('[Daemon] Re-authentication successful');
+                        consecutiveErrors = 0;
+                    } catch (reAuthError) {
+                        console.error(`[Daemon] Re-authentication failed: ${reAuthError.message}`);
+                        // Continue anyway, will try again next cycle
+                    }
+                }
+
                 await this.sync();
+                consecutiveErrors = 0; // Reset on success
             } catch (error) {
                 console.error(`[Daemon] Sync error: ${error.message}`);
-               
+                consecutiveErrors++;
             }
 
-           
+            // Schedule next sync
             setTimeout(syncLoop, this.syncInterval);
         };
 
-       
+        // Start the sync loop
         setTimeout(syncLoop, this.syncInterval);
 
-       
+        // Handle graceful shutdown
         process.on('SIGINT', () => {
             console.log('\n[Daemon] Shutting down...');
             console.log(`[Daemon] Total synced: ${this.stats.totalSynced}`);

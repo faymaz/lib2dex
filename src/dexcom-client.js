@@ -39,12 +39,43 @@ class DexcomClient {
         this.sessionId = null;
         this.accountId = null;
         this.serialNumber = null;
+
+        // Retry configuration
+        this.maxRetries = 3;
+        this.retryDelayMs = 5000;
     }
 
     /**
-     * Make an HTTPS request
+     * Sleep helper for delays
      */
-    _request(method, path, data = null) {
+    _sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Check if error is a network error that should be retried
+     */
+    _isNetworkError(error) {
+        const networkErrorCodes = [
+            'EAI_AGAIN',      // DNS temporary failure
+            'ENOTFOUND',      // DNS not found
+            'ECONNRESET',     // Connection reset
+            'ECONNREFUSED',   // Connection refused
+            'ETIMEDOUT',      // Connection timed out
+            'EPIPE',          // Broken pipe
+            'EHOSTUNREACH',   // Host unreachable
+            'ENETUNREACH'     // Network unreachable
+        ];
+
+        return networkErrorCodes.some(code =>
+            error.message.includes(code) || error.code === code
+        );
+    }
+
+    /**
+     * Make an HTTPS request (single attempt)
+     */
+    _requestOnce(method, path, data = null) {
         return new Promise((resolve, reject) => {
             const options = {
                 hostname: this.baseUrl,
@@ -87,6 +118,54 @@ class DexcomClient {
     }
 
     /**
+     * Make an HTTPS request with retry logic
+     */
+    async _request(method, path, data = null) {
+        let lastError;
+
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                const response = await this._requestOnce(method, path, data);
+
+                // Retry on 500 server errors (but not for specific known errors)
+                if (response.status === 500) {
+                    const errorCode = response.data?.Code;
+                    // Don't retry session errors - they need re-auth, not retry
+                    if (errorCode === 'SessionIdNotFound' || errorCode === 'SessionNotValid') {
+                        return response;
+                    }
+                    // Retry other 500 errors
+                    const delay = this.retryDelayMs * attempt;
+                    console.log(`[Dexcom] Server error 500 (attempt ${attempt}/${this.maxRetries}). Waiting ${Math.round(delay/1000)}s...`);
+                    await this._sleep(delay);
+                    lastError = new Error(`Server error: ${JSON.stringify(response.data)}`);
+                    continue;
+                }
+
+                return response;
+            } catch (error) {
+                lastError = error;
+
+                if (this._isNetworkError(error)) {
+                    // Network error - retry with delay
+                    const delay = this.retryDelayMs * attempt;
+                    console.log(`[Dexcom] Network error: ${error.message} (attempt ${attempt}/${this.maxRetries}). Waiting ${Math.round(delay/1000)}s...`);
+                    await this._sleep(delay);
+                } else {
+                    // Unknown error - don't retry
+                    throw error;
+                }
+            }
+        }
+
+        // All retries failed
+        if (this._isNetworkError(lastError)) {
+            throw new Error(`Network error: ${lastError.message}. Check your internet connection.`);
+        }
+        throw lastError;
+    }
+
+    /**
      * Authenticate with Dexcom Share (Step 1: Get Account ID)
      */
     async _authenticateAccount() {
@@ -101,10 +180,11 @@ class DexcomClient {
         );
 
         if (response.status !== 200 || !response.data) {
-            throw new Error(`Account authentication failed: ${JSON.stringify(response.data)}`);
+            const errorInfo = response.data ? JSON.stringify(response.data) : `HTTP ${response.status}`;
+            throw new Error(`Account authentication failed: ${errorInfo}`);
         }
 
-       
+        // Account ID is returned as a quoted GUID string
         this.accountId = response.data.replace(/"/g, '');
         return this.accountId;
     }

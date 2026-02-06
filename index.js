@@ -226,14 +226,24 @@ function clearCrashState() {
     } catch (e) { /* ignore */ }
 }
 
+// Format timestamp for logging
+function formatTimestamp() {
+    return new Date().toISOString();
+}
+
+// Log with timestamp
+function log(level, message) {
+    console.log(`[${formatTimestamp()}] [${level}] ${message}`);
+}
+
 // Run with crash protection
 checkStartupDelay().then(() => {
     main().then(() => {
-       
+        // Success - clear crash state
         clearCrashState();
     }).catch(err => {
         recordCrash();
-        console.error(`FATAL ERROR: ${err.message}`);
+        log('ERROR', `Sync failed: ${err.message}`);
         process.exit(1);
     });
 });
