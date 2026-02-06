@@ -131,7 +131,8 @@ class DexcomClient {
                 if (response.status === 500) {
                     const errorCode = response.data?.Code;
                     // Don't retry session errors - they need re-auth, not retry
-                    if (errorCode === 'SessionIdNotFound' || errorCode === 'SessionNotValid') {
+                    // Don't retry validation errors - they're permanent, not transient
+                    if (errorCode === 'SessionIdNotFound' || errorCode === 'SessionNotValid' || errorCode === 'InvalidArgument') {
                         return response;
                     }
                     // Retry other 500 errors
@@ -264,28 +265,52 @@ class DexcomClient {
 
         console.log(`[Dexcom] Registering receiver: ${this.serialNumber}`);
 
-       
-        const response = await this._request(
-            'POST',
-            `/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver?sessionId=${this.sessionId}&sn=${encodeURIComponent(this.serialNumber)}`,
-            null
-        );
+        // Method 1: Serial number in both query param and body
+        try {
+            const response = await this._request(
+                'POST',
+                `/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver?sessionId=${this.sessionId}&sn=${encodeURIComponent(this.serialNumber)}`,
+                this.serialNumber
+            );
 
-        if (response.status === 200) {
-            console.log('[Dexcom] Receiver registered');
-            return true;
+            if (response.status === 200) {
+                console.log('[Dexcom] Receiver registered');
+                return true;
+            }
+        } catch (e) {
+            console.log(`[Dexcom] Registration method 1 failed: ${e.message}`);
         }
 
-       
-        const response2 = await this._request(
-            'POST',
-            `/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver?sessionId=${this.sessionId}`,
-            this.serialNumber 
-        );
+        // Method 2: Serial number only in body
+        try {
+            const response2 = await this._request(
+                'POST',
+                `/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver?sessionId=${this.sessionId}`,
+                this.serialNumber
+            );
 
-        if (response2.status === 200) {
-            console.log('[Dexcom] Receiver registered (alt method)');
-            return true;
+            if (response2.status === 200) {
+                console.log('[Dexcom] Receiver registered (alt method)');
+                return true;
+            }
+        } catch (e) {
+            console.log(`[Dexcom] Registration method 2 failed: ${e.message}`);
+        }
+
+        // Method 3: Serial number only in query param (legacy)
+        try {
+            const response3 = await this._request(
+                'POST',
+                `/ShareWebServices/Services/Publisher/ReplacePublisherAccountMonitoredReceiver?sessionId=${this.sessionId}&sn=${encodeURIComponent(this.serialNumber)}`,
+                null
+            );
+
+            if (response3.status === 200) {
+                console.log('[Dexcom] Receiver registered (legacy method)');
+                return true;
+            }
+        } catch (e) {
+            console.log(`[Dexcom] Registration method 3 failed: ${e.message}`);
         }
 
         console.log('[Dexcom] Warning: Receiver registration failed, continuing...');
